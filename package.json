@@ -1,0 +1,22 @@
+{
+  "name": "portamento",
+  "version": "0.0.1",
+  "description": "TODO",
+  "type": "module",
+  "scripts": {
+    "dev": "yarn build && node dist/index.cjs",
+    "test": "vitest",
+    "build": "esbuild src/index.ts --bundle --outfile=dist/index.cjs --platform=node --target=esnext --external:none",
+    "build:blob": "node --experimental-sea-config sea-config.json"
+  },
+  "dependencies": {
+    "commander": "^10.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^18.16.3",
+    "esbuild": "^0.17.18",
+    "postject": "^1.0.0-alpha.5",
+    "typescript": "^5.0.4",
+    "vitest": "^0.31.0"
+  }
+}

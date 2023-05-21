@@ -1,0 +1,18 @@
+syntax = "proto2";
+
+package mainpackage;
+
+message Message1 {
+  required string name = 1;
+  optional int32 age = 2;
+  repeated string hobbies = 3;
+  optional NestedMessage nested_message = 4;
+
+  message NestedMessage {
+    required string id = 1;
+    optional string data = 2;
+  }
+  
+  reserved 5, 6, 7;
+  reserved "reserved_field_1", "reserved_field_2";
+}

@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+import "message.proto";
+
+package mainpackage;
+
+message SecondaryMessage {
+  mainpackage.MainMessage related_message = 1;
+  repeated string tags = 2;
+
+  message SubMessage {
+    string key = 1;
+    string value = 2;
+  }
+
+  repeated SubMessage metadata = 3;
+
+  map<string, mainpackage.MainMessage> messages_map = 4;
+
+  reserved 5 to 10;
+}

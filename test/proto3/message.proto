@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+package mainpackage;
+
+import "google/protobuf/timestamp.proto";
+
+enum Status {
+  UNKNOWN = 0;
+  ACTIVE = 1;
+  INACTIVE = 2;
+}
+
+message MainMessage {
+  string name = 1;
+  int32 age = 2;
+  repeated string hobbies = 3;
+  map<string, string> attributes = 4;
+  Status status = 5;
+  google.protobuf.Timestamp timestamp = 6;
+  OneofTest oneof_test = 7;
+
+  message NestedMessage {
+    string id = 1;
+    string data = 2;
+  }
+
+  NestedMessage nested_message = 8;
+
+  reserved 9, 10, 11;
+  reserved "reserved_field_1", "reserved_field_2";
+
+  message OneofTest {
+    oneof test_oneof {
+      string option_one = 1;
+      int32 option_two = 2;
+      NestedMessage option_three = 3;
+    }
+  }
+}

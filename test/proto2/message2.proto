@@ -1,0 +1,19 @@
+syntax = "proto2";
+
+import "message1.proto";
+
+package mainpackage;
+
+message Message2 {
+  required mainpackage.Message1 related_message = 1;
+  repeated string tags = 2;
+
+  message SubMessage {
+    optional string key = 1;
+    optional string value = 2;
+  }
+
+  repeated SubMessage metadata = 3;
+
+  reserved 4 to 10;
+}
