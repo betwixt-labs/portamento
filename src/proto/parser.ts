@@ -48,10 +48,10 @@ interface IParseOptions {
 
 const defaultParseOptions: IParseOptions = {
   keepCase: true,
-  alternateCommentMode: true,
+  alternateCommentMode: false,
   resolve: true,
   weakResolve: false,
-  toJson: true,
+  toJson: false,
 };
 
 let topFileName: string | undefined;
@@ -63,18 +63,18 @@ function testRegExp(regexp: RegExp, token: string | undefined): boolean {
   return regexp.test(token);
 }
 
-export function parse(source: string, opt?: IParseOptions): IParserResult {
+export function parse(source: string, opt?: Partial<IParseOptions>): IParserResult {
   let root: Root | Record<string, unknown>;
   root = new Root();
 
   const options = { ...defaultParseOptions, ...opt };
 
-  const tn = tokenize(source);
-  const { next } = tn;
-  const { push } = tn;
-  const { peek } = tn;
-  const { skip } = tn;
-  const { cmnt } = tn;
+  const tn = tokenize(source, options.alternateCommentMode),
+    next = tn.next,
+    push = tn.push,
+    peek = tn.peek,
+    skip = tn.skip,
+    cmnt = tn.cmnt;
 
   let head = true;
   let pkg: string | undefined;

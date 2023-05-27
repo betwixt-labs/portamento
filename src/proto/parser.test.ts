@@ -95,7 +95,7 @@ describe("protobuf-parser", () => {
         },
       },
     };
-    const result = parse(source);
+    const result = parse(source, { toJson: true });
     expect(result).toEqual(expected);
   });
 

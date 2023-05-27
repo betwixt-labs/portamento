@@ -9,6 +9,13 @@ interface ITokenizerHandle {
   line: number;
 }
 
+interface IComment {
+  type: string;
+  lineEmpty: boolean;
+  leading: boolean;
+  text: string;
+}
+
 const delimRe: RegExp = /[\s{}=;:[\],'"()<>]/g;
 const stringDoubleRe: RegExp = /(?:"([^"\\]*(?:\\.[^"\\]*)*)")/g;
 const stringSingleRe: RegExp = /(?:'([^'\\]*(?:\\.[^'\\]*)*)')/g;
@@ -74,9 +81,12 @@ function findEndOfLine(cursor: number, source: string): number {
  * @param {string} source Source contents
  * @returns {ITokenizerHandle} Tokenizer handle
  */
-export const tokenize = (source: string): ITokenizerHandle => {
+export const tokenize = (
+  source: string,
+  alternateCommentMode: boolean
+): ITokenizerHandle => {
   source = source.toString();
-
+ 
   let offset = 0;
   const { length } = source;
   let line = 1;
@@ -85,6 +95,8 @@ export const tokenize = (source: string): ITokenizerHandle => {
   let commentLine = 0;
   let commentLineEmpty = false;
   let currentCommentUsed = false;
+  let comments: Record<string, IComment> = {};
+  let lastCommentLine = 0;
 
   const stack: string[] = [];
 
@@ -136,37 +148,36 @@ export const tokenize = (source: string): ITokenizerHandle => {
    * @returns {undefined}
    * @inner
    */
-  function setComment(start: number, end: number): void {
-    commentType = source.charAt(start++);
-    commentLine = line;
-    commentLineEmpty = false;
-    let lookback: number;
-    if (source.charAt(start) === commentType) {
+  function setComment(start: number, end: number, isLeading: boolean): void {
+    var comment: IComment = {
+      type: source.charAt(start++),
+      lineEmpty: false,
+      leading: isLeading,
+      text: "",
+    };
+    var lookback;
+    if (alternateCommentMode) {
       lookback = 2; // alternate comment parsing: "//" or "/*"
     } else {
       lookback = 3; // "///" or "/**"
     }
-    let commentOffset = start - lookback;
-    let c: string;
+    var commentOffset = start - lookback,
+      c;
     do {
       if (--commentOffset < 0 || (c = source.charAt(commentOffset)) === "\n") {
-        commentLineEmpty = true;
+        comment.lineEmpty = true;
         break;
       }
     } while (c === " " || c === "\t");
-    const lines = source.substring(start, end).split(setCommentSplitRe);
-    
-    for (let i = 0; i < lines.length; ++i) {
+    var lines = source.substring(start, end).split(setCommentSplitRe);
+    for (var i = 0; i < lines.length; ++i)
       lines[i] = lines[i]
-        .replace(
-          source.charAt(start) === "/" ? setCommentRe : setCommentAltRe,
-          ""
-        )
+        .replace(alternateCommentMode ? setCommentAltRe : setCommentRe, "")
         .trim();
-    }
-    commentText = lines.join("\n").trim();
-    console.log(commentText)
-    currentCommentUsed = false;
+    comment.text = lines.join("\n").trim();
+
+    comments[line] = comment;
+    lastCommentLine = line;
   }
 
   function isDoubleSlashCommentLine(startOffset: number): boolean {
@@ -174,7 +185,7 @@ export const tokenize = (source: string): ITokenizerHandle => {
 
     // see if remaining line matches comment pattern
     const lineText = source.substring(startOffset, endOffset);
-    
+
     // look for 1 or 2 slashes since startOffset would already point past
     // the first slash that started the comment.
     const isComment =
@@ -205,47 +216,72 @@ export const tokenize = (source: string): ITokenizerHandle => {
     let curr: string;
     let start: number;
     let isDoc: boolean;
+    let isLeadingComment = offset === 0;
     do {
       if (offset === length) return undefined;
       repeat = false;
       while (whitespaceRe.test((curr = charAt(offset)))) {
-        if (curr === "\n") ++line;
+        if (curr === "\n") {
+          isLeadingComment = true;
+          ++line;
+        }
         if (++offset === length) return undefined;
       }
 
       if (charAt(offset) === "/") {
-         
         if (++offset === length) {
           throw illegal("comment");
         }
         if (charAt(offset) === "/") {
-           
-          // Line
-          // check for double-slash comments, consolidating consecutive lines
-          start = offset;
-          isDoc = false;
-          if (isDoubleSlashCommentLine(offset)) {
-             console.log("isDoubleSlashCommentLine");
-            isDoc = true;
-            do {
-              offset = findEndOfLine(offset);
+          if (!alternateCommentMode) {
+            // check for triple-slash comment
+            isDoc = charAt((start = offset + 1)) === "/";
+
+            while (charAt(++offset) !== "\n") {
               if (offset === length) {
-                break;
+                return undefined;
               }
-              offset++;
-            } while (isDoubleSlashCommentLine(offset));
+            }
+            ++offset;
+            if (isDoc) {
+              setComment(start, offset - 1, isLeadingComment);
+              // Trailing comment cannot not be multi-line,
+              // so leading comment state should be reset to handle potential next comments
+              isLeadingComment = true;
+            }
+            ++line;
+            repeat = true;
           } else {
-            offset = Math.min(length, findEndOfLine(offset) + 1);
+            // check for double-slash comments, consolidating consecutive lines
+            start = offset;
+            isDoc = false;
+            if (isDoubleSlashCommentLine(offset)) {
+              isDoc = true;
+              do {
+                offset = findEndOfLine(offset);
+                if (offset === length) {
+                  break;
+                }
+                offset++;
+                if (!isLeadingComment) {
+                  // Trailing comment cannot not be multi-line
+                  break;
+                }
+              } while (isDoubleSlashCommentLine(offset));
+            } else {
+              offset = Math.min(length, findEndOfLine(offset) + 1);
+            }
+            if (isDoc) {
+              setComment(start, offset, isLeadingComment);
+              isLeadingComment = true;
+            }
+            line++;
+            repeat = true;
           }
-          if (isDoc) {
-            setComment(start, offset);
-          }
-          ++line;
-          repeat = true;
         } else if ((curr = charAt(offset)) === "*") {
           // Block
           start = offset + 1;
-          isDoc = charAt(start) === "*";
+          isDoc = alternateCommentMode || charAt(start) === "*";
           do {
             if (curr === "\n") {
               ++line;
@@ -258,7 +294,8 @@ export const tokenize = (source: string): ITokenizerHandle => {
           } while (prev !== "*" || curr !== "/");
           ++offset;
           if (isDoc) {
-            setComment(start, offset - 2);
+            setComment(start, offset - 2, isLeadingComment);
+            isLeadingComment = true;
           }
           repeat = true;
         } else {
@@ -266,12 +303,12 @@ export const tokenize = (source: string): ITokenizerHandle => {
         }
       }
     } while (repeat);
-
-    let end = offset;
+    // offset !== length if we got here
+    var end = offset;
     delimRe.lastIndex = 0;
-    const delim = delimRe.test(charAt(end++));
+    var delim = delimRe.test(charAt(end++));
     if (!delim) while (end < length && !delimRe.test(charAt(end))) ++end;
-    const token = source.substring(offset, (offset = end));
+    var token = source.substring(offset, (offset = end));
     if (token === '"' || token === "'") stringDelim = token;
     return token;
   }
@@ -327,27 +364,29 @@ export const tokenize = (source: string): ITokenizerHandle => {
    */
   function cmnt(trailingLine?: number): string | undefined {
     let ret: string | undefined = undefined;
+    var comment;
     if (trailingLine === undefined) {
+      comment = comments[line - 1];
+      delete comments[line - 1];
       if (
-        commentLine === line - 1 &&
-        (commentType === "*" || commentType === "/" || commentLineEmpty) &&
-        !currentCommentUsed
+        comment &&
+        (alternateCommentMode || comment.type === "*" || comment.lineEmpty)
       ) {
-        ret = commentText;
-        currentCommentUsed = true;
+        ret = comment.leading ? comment.text : undefined;
       }
     } else {
-      if (commentLine < trailingLine) {
+      /* istanbul ignore else */
+      if (lastCommentLine < trailingLine) {
         peek();
       }
+      comment = comments[trailingLine];
+      delete comments[trailingLine];
       if (
-        commentLine === trailingLine &&
-        !commentLineEmpty &&
-        (commentType === "/" || commentType === "*") &&
-        !currentCommentUsed
+        comment &&
+        !comment.lineEmpty &&
+        (alternateCommentMode || comment.type === "/")
       ) {
-        ret = commentText;
-        currentCommentUsed = true;
+        ret = comment.leading ? undefined : comment.text;
       }
     }
     return ret;
