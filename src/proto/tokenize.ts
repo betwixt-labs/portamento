@@ -86,15 +86,10 @@ export const tokenize = (
   alternateCommentMode: boolean
 ): ITokenizerHandle => {
   source = source.toString();
- 
+
   let offset = 0;
   const { length } = source;
   let line = 1;
-  let commentType: string | undefined = undefined;
-  let commentText: string | undefined = undefined;
-  let commentLine = 0;
-  let commentLineEmpty = false;
-  let currentCommentUsed = false;
   let comments: Record<string, IComment> = {};
   let lastCommentLine = 0;
 
@@ -181,16 +176,13 @@ export const tokenize = (
   }
 
   function isDoubleSlashCommentLine(startOffset: number): boolean {
-    const endOffset = findEndOfLine(startOffset);
+    var endOffset = findEndOfLine(startOffset);
 
     // see if remaining line matches comment pattern
-    const lineText = source.substring(startOffset, endOffset);
-
+    var lineText = source.substring(startOffset, endOffset);
     // look for 1 or 2 slashes since startOffset would already point past
     // the first slash that started the comment.
-    const isComment =
-      /^\s*(\/\/|\/\*)/.test(lineText) && !/^\s*(\/\/|\/\*)\*/.test(lineText);
-
+    var isComment = /^\s*\/{1,2}/.test(lineText);
     return isComment;
   }
 
@@ -375,7 +367,6 @@ export const tokenize = (
         ret = comment.leading ? comment.text : undefined;
       }
     } else {
-      /* istanbul ignore else */
       if (lastCommentLine < trailingLine) {
         peek();
       }

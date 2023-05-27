@@ -3,7 +3,7 @@ import { tokenize } from "./tokenize";
 
 describe("tokenize", () => {
   it("should tokenize a simple message definition", () => {
-    const tokenizer = tokenize('syntax = "proto3"; message Foo {}');
+    const tokenizer = tokenize('syntax = "proto3"; message Foo {}', false);
     expect(tokenizer.next()).toEqual("syntax");
     expect(tokenizer.next()).toEqual("=");
     expect(tokenizer.next()).toEqual('"');
@@ -40,7 +40,7 @@ describe("tokenize", () => {
     }
   `;
 
-    const tokenizer = tokenize(schema);
+    const tokenizer = tokenize(schema, false);
     expect(tokenizer.next()).toEqual("syntax");
     expect(tokenizer.next()).toEqual("=");
     expect(tokenizer.next()).toEqual('"');
@@ -126,7 +126,7 @@ describe("tokenize", () => {
       }
     `;
     const tokens: string[] = [];
-    const tokenizer = tokenize(source);
+    const tokenizer = tokenize(source, false);
     let token: string | undefined;
     while ((token = tokenizer.next()) !== undefined) {
       tokens.push(token);

@@ -43,6 +43,7 @@ interface IParseOptions {
   alternateCommentMode: boolean;
   resolve: boolean;
   weakResolve: boolean;
+  preferTrailingComment: boolean;
   toJson: boolean;
 }
 
@@ -50,24 +51,33 @@ const defaultParseOptions: IParseOptions = {
   keepCase: true,
   alternateCommentMode: false,
   resolve: true,
+  preferTrailingComment: false,
   weakResolve: false,
   toJson: false,
 };
 
 let topFileName: string | undefined;
 
-function testRegExp(regexp: RegExp, token: string | undefined): boolean {
+function testRegExp(
+  regexp: RegExp,
+  token: string | undefined
+): token is string {
   if (token === undefined) {
     return false;
   }
   return regexp.test(token);
 }
 
-export function parse(source: string, opt?: Partial<IParseOptions>): IParserResult {
+export function parse(
+  source: string,
+  opt?: Partial<IParseOptions>
+): IParserResult {
   let root: Root | Record<string, unknown>;
   root = new Root();
 
   const options = { ...defaultParseOptions, ...opt };
+
+  var preferTrailingComment = options.preferTrailingComment || false;
 
   const tn = tokenize(source, options.alternateCommentMode),
     next = tn.next,
@@ -96,21 +106,27 @@ export function parse(source: string, opt?: Partial<IParseOptions>): IParserResu
     name?: string,
     insideTryCatch?: boolean
   ): Error {
-    topFileName = undefined;
-    const message = `illegal ${name || "token"} '${token}'`;
-    const err = new Error(message);
-    return err;
+    const filename = topFileName;
+    if (!insideTryCatch) topFileName = undefined;
+    return Error(
+      "illegal " +
+        (name || "token") +
+        " '" +
+        token +
+        "' (" +
+        (filename ? filename + ", " : "") +
+        "line " +
+        tn.line +
+        ")"
+    );
   }
 
   function readString(): string {
-    const values: string[] = [];
-    let token: string | undefined;
+    var values = [],
+      token;
     do {
-      token = next();
-      if (token !== '"' && token !== "'") throw illegal(token);
-      const nexttoken = next();
-      if (nexttoken === undefined) throw illegal(token, "string");
-      values.push(nexttoken);
+      if ((token = next()) !== '"' && token !== "'") throw illegal(token);
+      values.push(next());
       skip(token);
       token = peek();
     } while (token === '"' || token === "'");
@@ -136,7 +152,6 @@ export function parse(source: string, opt?: Partial<IParseOptions>): IParserResu
       return parseNumber(token, /* insideTryCatch */ true);
     } catch (e) {
       if (acceptTypeRef && typeRefRe.test(token)) return token;
-
       throw illegal(token, "value");
     }
   }
@@ -155,17 +170,17 @@ export function parse(source: string, opt?: Partial<IParseOptions>): IParserResu
     } while (skip(",", true));
     skip(";");
   }
+
   function parseNumber(
     token: string | undefined,
     insideTryCatch?: boolean
   ): number {
     if (token === undefined) throw illegal(token, "number");
-    let sign = 1;
+    var sign = 1;
     if (token.charAt(0) === "-") {
       sign = -1;
       token = token.substring(1);
     }
-
     switch (token) {
       case "inf":
       case "INF":
@@ -182,9 +197,7 @@ export function parse(source: string, opt?: Partial<IParseOptions>): IParserResu
     if (base10Re.test(token)) return sign * parseInt(token, 10);
     if (base16Re.test(token)) return sign * parseInt(token, 16);
     if (base8Re.test(token)) return sign * parseInt(token, 8);
-
     if (numberRe.test(token)) return sign * parseFloat(token);
-
     throw illegal(token, "number", insideTryCatch);
   }
 
@@ -205,17 +218,13 @@ export function parse(source: string, opt?: Partial<IParseOptions>): IParserResu
     if (!acceptNegative && token.charAt(0) === "-") throw illegal(token, "id");
 
     if (base10NegRe.test(token)) return parseInt(token, 10);
-
     if (base16NegRe.test(token)) return parseInt(token, 16);
-
     if (base8NegRe.test(token)) return parseInt(token, 8);
-
     throw illegal(token, "id");
   }
 
   function parsePackage(): void {
     if (pkg !== undefined) throw illegal("package");
-
     pkg = next();
     if (pkg === undefined) throw illegal(pkg, "name");
     if (!typeRefRe.test(pkg)) throw illegal(pkg, "name");
@@ -224,8 +233,8 @@ export function parse(source: string, opt?: Partial<IParseOptions>): IParserResu
   }
 
   function parseImport(): void {
-    let token = peek();
-    let whichImports: string[];
+    var token = peek();
+    var whichImports;
     switch (token) {
       case "weak":
         whichImports = weakImports || (weakImports = []);
@@ -246,9 +255,7 @@ export function parse(source: string, opt?: Partial<IParseOptions>): IParserResu
     skip("=");
     syntax = readString();
     isProto3 = syntax === "proto3";
-
     if (!isProto3 && syntax !== "proto2") throw illegal(syntax, "syntax");
-
     skip(";");
   }
 
@@ -292,25 +299,26 @@ export function parse(source: string, opt?: Partial<IParseOptions>): IParserResu
     const trailingLine = tn.line;
     if (obj) {
       if (typeof obj.comment !== "string") {
-        obj.comment = cmnt();
+        obj.comment = cmnt(); // try block-type comment
       }
       obj.fileName = topFileName;
     }
     if (skip("{", true)) {
-      let token: string | undefined;
+      var token;
       while ((token = next()) !== "}") fnIf(token);
       skip(";", true);
     } else {
       if (fnElse) fnElse();
       skip(";");
-      if (obj && typeof obj.comment !== "string")
-        obj.comment = cmnt(trailingLine);
+      if (obj && (typeof obj.comment !== "string" || preferTrailingComment))
+        obj.comment = cmnt(trailingLine) || obj.comment; // try line-type comment
     }
   }
 
   function parseType(parent: NamespaceBase, token: string | undefined): void {
     if (!testRegExp(nameRe, (token = next())))
       throw illegal(token, "type name");
+
     if (token === undefined) throw illegal(token, "type name");
     const type = new Type(token);
     ifBlock(type, (token) => {
@@ -323,9 +331,16 @@ export function parse(source: string, opt?: Partial<IParseOptions>): IParserResu
           break;
 
         case "required":
-        case "optional":
         case "repeated":
           parseField(type, token);
+          break;
+
+        case "optional":
+          if (isProto3) {
+            parseField(type, "proto3_optional");
+          } else {
+            parseField(type, "optional");
+          }
           break;
 
         case "oneof":
@@ -342,7 +357,6 @@ export function parse(source: string, opt?: Partial<IParseOptions>): IParserResu
 
         default:
           if (!isProto3 || !typeRefRe.test(token)) throw illegal(token);
-
           push(token);
           parseField(type, "optional");
           break;
@@ -356,19 +370,28 @@ export function parse(source: string, opt?: Partial<IParseOptions>): IParserResu
     rule: string,
     extend?: string
   ): void {
-    const type = next();
+    let type = next();
     if (type === undefined) throw illegal(type, "type");
     if (type === "group") {
       parseGroup(parent, rule);
       return;
     }
 
+    // Type names can consume multiple tokens, in multiple variants:
+    //    package.subpackage   field       tokens: "package.subpackage" [TYPE NAME ENDS HERE] "field"
+    //    package . subpackage field       tokens: "package" "." "subpackage" [TYPE NAME ENDS HERE] "field"
+    //    package.  subpackage field       tokens: "package." "subpackage" [TYPE NAME ENDS HERE] "field"
+    //    package  .subpackage field       tokens: "package" ".subpackage" [TYPE NAME ENDS HERE] "field"
+    // Keep reading tokens until we get a type name with no period at the end,
+    // and the next token does not start with a period.
+    while (type.endsWith(".") || peek()?.startsWith(".")) {
+      type += next();
+    }
+
     if (!typeRefRe.test(type)) throw illegal(type, "type");
 
     let name = next();
-    if (name === undefined) throw illegal(name, "name");
-
-    if (!nameRe.test(name)) throw illegal(name, "name");
+    if (!testRegExp(nameRe, name)) throw illegal(name, "name");
 
     name = applyCase(name);
     skip("=");
@@ -386,22 +409,30 @@ export function parse(source: string, opt?: Partial<IParseOptions>): IParserResu
         parseInlineOptions(field);
       }
     );
-    parent.add(field);
+    if (rule === "proto3_optional") {
+      var oneof = new OneOf("_" + name);
+      field.setOption("proto3_optional", true);
+      oneof.add(field);
+      parent.add(oneof);
+    } else {
+      parent.add(field);
+    }
 
+    // JSON defaults to packed=true if not set so we have to set packed=false explicity when
+    // parsing proto2 descriptors without the option, where applicable. This must be done for
+    // all known packable types and anything that could be an enum (= is not a basic type).
     if (
       !isProto3 &&
       field.repeated &&
       //@ts-ignore
       (types.packed[type] !== undefined || types.basic[type] === undefined)
     )
-      field.setOption("packed", false, true);
+      field.setOption("packed", false, /* ifNotSet */ true);
   }
 
   function parseGroup(parent: NamespaceBase, rule: string): void {
     let name = next();
-    if (name === undefined) throw illegal(token, "name");
-    if (!nameRe.test(name)) throw illegal(name, "name");
-
+    if (!testRegExp(nameRe, name)) throw illegal(name, "name");
     const fieldName = util.lcFirst(name);
     if (name === fieldName) name = util.ucFirst(name);
     skip("=");
@@ -418,9 +449,24 @@ export function parse(source: string, opt?: Partial<IParseOptions>): IParserResu
           break;
 
         case "required":
-        case "optional":
         case "repeated":
           parseField(type, token);
+          break;
+
+        case "optional":
+          if (isProto3) {
+            parseField(type, "proto3_optional");
+          } else {
+            parseField(type, "optional");
+          }
+          break;
+
+        case "message":
+          parseType(type, token);
+          break;
+
+        case "enum":
+          parseEnum(type, token);
           break;
 
         default:
@@ -439,16 +485,11 @@ export function parse(source: string, opt?: Partial<IParseOptions>): IParserResu
 
     skip(",");
     const valueType = next();
-    if (valueType === undefined) throw illegal(token, "type");
-
-    if (!typeRefRe.test(valueType)) throw illegal(valueType, "type");
+    if (!testRegExp(typeRefRe, valueType)) throw illegal(valueType, "type");
 
     skip(">");
     const name = next();
-
-    if (name === undefined) throw illegal(name, "name");
-
-    if (!nameRe.test(name)) throw illegal(name, "name");
+    if (!testRegExp(nameRe, name)) throw illegal(name, "name");
 
     skip("=");
     const field = new MapField(
@@ -474,7 +515,6 @@ export function parse(source: string, opt?: Partial<IParseOptions>): IParserResu
 
   function parseOneOf(parent: Type, token: string | undefined): void {
     if (!testRegExp(nameRe, (token = next()))) throw illegal(token, "name");
-    if (token === undefined) throw illegal(token, "name");
     const oneof = new OneOf(applyCase(token));
     ifBlock(oneof, (token) => {
       if (token === undefined) throw illegal(token);
@@ -492,11 +532,11 @@ export function parse(source: string, opt?: Partial<IParseOptions>): IParserResu
 
   function parseEnum(parent: NamespaceBase, token: string | undefined): void {
     if (!testRegExp(nameRe, (token = next()))) throw illegal(token, "name");
-    if (token === undefined) throw illegal(token, "name");
     const enm = new Enum(token);
     ifBlock(enm, (token) => {
       switch (token) {
         case "option":
+      
           parseOption(enm, token);
           skip(";");
           break;
@@ -513,8 +553,7 @@ export function parse(source: string, opt?: Partial<IParseOptions>): IParserResu
   }
 
   function parseEnumValue(parent: Enum, token: string | undefined): void {
-    if (token === undefined) throw illegal(token, "name");
-    if (!nameRe.test(token)) throw illegal(token, "name");
+    if (!testRegExp(nameRe, token)) throw illegal(token, "name");
 
     skip("=");
     const value = parseId(next(), true);
@@ -522,6 +561,11 @@ export function parse(source: string, opt?: Partial<IParseOptions>): IParserResu
       string,
       any
     > as ReflectionObject;
+    (dummy as any).setOption = function (name: string, value: string) {
+      if (this.options === undefined) this.options = {};
+      this.options[name] = value;
+    };
+
     ifBlock(
       dummy,
       (token) => {
@@ -534,6 +578,7 @@ export function parse(source: string, opt?: Partial<IParseOptions>): IParserResu
         parseInlineOptions(dummy); // skip
       }
     );
+    //TODO options?
     parent.add(token, value, dummy.comment);
   }
 
@@ -542,9 +587,7 @@ export function parse(source: string, opt?: Partial<IParseOptions>): IParserResu
     token: string | undefined
   ): void {
     const isCustom = skip("(", true);
-
-    if (!testRegExp(nameRe, (token = next()))) throw illegal(token, "name");
-
+    if (!testRegExp(nameRe, token = next())) throw illegal(token, "name");
     let name = token;
     if (isCustom) {
       skip(")");
@@ -581,7 +624,9 @@ export function parse(source: string, opt?: Partial<IParseOptions>): IParserResu
   }
 
   function setOption(parent: ReflectionObject, name: string, value: any): void {
-    if (parent.setOption) parent.setOption(name, value);
+    if (parent.setOption)  {
+      parent.setOption(name, value);
+    }
   }
 
   function parseInlineOptions(parent: ReflectionObject): ReflectionObject {
@@ -698,17 +743,16 @@ export function parse(source: string, opt?: Partial<IParseOptions>): IParserResu
 
       case "import":
         if (!head) throw illegal(token);
-
         parseImport();
         break;
 
       case "syntax":
         if (!head) throw illegal(token);
-
         parseSyntax();
         break;
 
       case "option":
+
         parseOption(ptr, token);
         skip(";");
         break;
@@ -718,7 +762,6 @@ export function parse(source: string, opt?: Partial<IParseOptions>): IParserResu
           head = false;
           continue;
         }
-
         throw illegal(token);
     }
   }
@@ -732,7 +775,7 @@ export function parse(source: string, opt?: Partial<IParseOptions>): IParserResu
     setWeakResolve(false);
     root.resolve();
   }
-
+  
   if (options.toJson) {
     root = root.toJson();
   }

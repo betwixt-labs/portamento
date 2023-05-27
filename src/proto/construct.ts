@@ -279,6 +279,7 @@ export class NamespaceDefinition extends ReflectionObject {
       | EnumDefinition
       | ServiceDefinition
       | NamespaceDefinition
+      | OneofDefinition
       | string,
     id?: number,
     comment?: string
@@ -289,7 +290,8 @@ export class NamespaceDefinition extends ReflectionObject {
         object instanceof MessageDefinition ||
         object instanceof EnumDefinition ||
         object instanceof ServiceDefinition ||
-        object instanceof NamespaceDefinition
+        object instanceof NamespaceDefinition ||
+        object instanceof OneofDefinition
       )
     ) {
       throw TypeError("object must be a valid nested object");
